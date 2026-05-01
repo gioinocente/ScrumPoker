@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { ref, set, onValue, push, serverTimestamp, runTransaction, onDisconnect, remove } from 'firebase/database';
-import { EyeIcon, ShareIcon, ListIcon, GearIcon } from './icons';
+import { ref, set, get, onValue, push, serverTimestamp, runTransaction, onDisconnect, remove } from 'firebase/database';
+import { EyeIcon, ShareIcon, ListIcon, GearIcon, SunIcon, MoonIcon } from './icons';
 import './App.css';
 
 const NamePopup = ({ onSubmit }) => {
@@ -123,6 +123,15 @@ function App() {
   });
   const [room, setRoom] = useState(null);
   const [layout, setLayout] = useState('table'); // 'table' or 'linear'
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('scrumpoker-theme');
+    return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    localStorage.setItem('scrumpoker-theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
 
   useEffect(() => {
     const roomId = window.location.pathname.substring(1) || push(ref(db, 'rooms')).key;
@@ -258,8 +267,13 @@ function App() {
   return (
     <div className="App">
       <header>
-        <h1>Scrum Poker</h1>
-        <div className="header-controls">
+        <div className="header-inner">
+          <h1>Scrum Poker</h1>
+          <div className="header-controls">
+            <button onClick={() => setDarkMode(d => !d)} className="icon-button">
+              {darkMode ? <SunIcon /> : <MoonIcon />}
+              <span>{darkMode ? 'Light' : 'Dark'}</span>
+            </button>
           {isRoomCreator && (
             <button onClick={handleCardSetChange} className="icon-button">
               <GearIcon />
@@ -278,6 +292,7 @@ function App() {
             <EyeIcon />
             <span>{isSpectator ? 'Spectator' : 'Participant'}</span>
           </button>
+          </div>
         </div>
       </header>
       <main>
