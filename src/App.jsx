@@ -198,6 +198,7 @@ function App() {
     };
     setUser(newUser);
     localStorage.setItem('scrumpoker-user', JSON.stringify(newUser));
+    window.location.reload();
   };
 
   const handleVote = (vote) => {
