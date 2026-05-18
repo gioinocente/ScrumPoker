@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { ref, set, get, onValue, push, serverTimestamp, runTransaction, onDisconnect, remove } from 'firebase/database';
+import { ref, set, onValue, push, serverTimestamp, runTransaction, onDisconnect, remove } from 'firebase/database';
 import { EyeIcon, ShareIcon, ListIcon, GearIcon, SunIcon, MoonIcon } from './icons';
 import './App.css';
 
@@ -60,6 +60,7 @@ const PokerTable = ({ users, currentUser, handleVote, showVotes, isRoomCreator, 
 
     return (
         <div className="poker-table-container">
+            <div className='spliter' />
             <div className="poker-table">
                 <div className="table-center">
             {/* voting cards moved below table for better UX */}
@@ -97,13 +98,13 @@ const PokerTable = ({ users, currentUser, handleVote, showVotes, isRoomCreator, 
               )}
               {/* Voting cards panel below the table */}
               <div className="card-panel">
-                {(!isSpectator && !showVotes) && (
+                {!isSpectator && (
                   <div className="card-container">
                     {currentCards.map((value) => (
                       <div
                         key={value}
-                        className={`card ${String(mainPlayer?.vote) === String(value) ? 'selected' : ''}`}
-                        onClick={() => handleVote(value)}
+                        className={`card ${String(mainPlayer?.vote) === String(value) ? 'selected' : ''} ${showVotes ? 'disabled' : ''}`}
+                        onClick={() => !showVotes && handleVote(value)}
                       >
                         {value}
                       </div>

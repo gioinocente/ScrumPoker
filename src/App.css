@@ -213,6 +213,11 @@ main {
   overflow: hidden;
 }
 
+.spliter {
+  height: 10rem;
+  width: 100%;
+}
+
 .poker-table-container, .linear-view {
   flex-grow: 1;
   display: flex;
