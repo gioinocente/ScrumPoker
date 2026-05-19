@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { db } from './firebase';
-import { ref, set, onValue, push, serverTimestamp, runTransaction, onDisconnect, remove } from 'firebase/database';
+import { db, authReady } from './firebase';
+import { ref, set, onValue, push, serverTimestamp, onDisconnect, remove } from 'firebase/database';
 import { EyeIcon, ShareIcon, ListIcon, GearIcon, SunIcon, MoonIcon } from './icons';
 import './App.css';
 
@@ -118,10 +118,8 @@ const PokerTable = ({ users, currentUser, handleVote, showVotes, isRoomCreator, 
 
 
 function App() {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('scrumpoker-user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [room, setRoom] = useState(null);
   const [layout, setLayout] = useState('table'); // 'table' or 'linear'
   const [darkMode, setDarkMode] = useState(() => {
@@ -130,76 +128,114 @@ function App() {
   });
 
   useEffect(() => {
+    console.log('[auth] iniciando authReady...');
+    authReady
+      .then((firebaseUser) => {
+        console.log('[auth] authReady resolvido, uid:', firebaseUser.uid);
+        const savedUser = localStorage.getItem('scrumpoker-user');
+        console.log('[auth] localStorage scrumpoker-user:', savedUser);
+        if (savedUser) {
+          const parsed = JSON.parse(savedUser);
+          const synced = { ...parsed, id: firebaseUser.uid };
+          if (synced.id !== parsed.id) {
+            console.log('[auth] atualizando id no localStorage:', parsed.id, '->', firebaseUser.uid);
+            localStorage.setItem('scrumpoker-user', JSON.stringify(synced));
+          }
+          setUser(synced);
+        }
+        setAuthLoading(false);
+      })
+      .catch((err) => {
+        console.error('[auth] ERRO no authReady:', err);
+        setAuthLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     localStorage.setItem('scrumpoker-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
   useEffect(() => {
+    if (!user) return;
+    console.log('[room] user pronto, conectando à sala. user.id:', user.id);
+
     const roomId = window.location.pathname.substring(1) || push(ref(db, 'rooms')).key;
     if (!window.location.pathname.substring(1)) {
       window.history.replaceState({}, '', `/${roomId}`);
     }
+    console.log('[room] roomId:', roomId);
 
     const roomRef = ref(db, `rooms/${roomId}`);
-
-    const handleUserConnection = (roomData) => {
-      if (user) {
-        const userRef = ref(db, `rooms/${roomId}/users/${user.id}`);
-        if (roomData) {
-          if (!roomData.users?.[user.id]) {
-            set(userRef, user);
-          }
-          // Ensure room has a stable creator id for ownership checks
-          if (!roomData.creator) {
-            const existingUserIds = roomData.users ? Object.keys(roomData.users) : [];
-            const creatorId = existingUserIds.length ? existingUserIds[0] : user.id;
-            set(ref(db, `rooms/${roomId}/creator`), creatorId);
-          }
-          onDisconnect(userRef).remove();
-        } else {
-          const newRoom = {
-            createdAt: serverTimestamp(),
-            creator: user.id,
-            users: { [user.id]: user },
-            cardSet: 'fibonacci', // Default card set
-          };
-          set(roomRef, newRoom).then(() => {
-            onDisconnect(userRef).remove();
-          });
-        }
-      }
-    };
+    const userRef = ref(db, `rooms/${roomId}/users/${user.id}`);
 
     const unsubscribe = onValue(roomRef, (snapshot) => {
       const roomData = snapshot.val();
-      // If a room exists but has no users, remove it to keep the DB clean
-      if (roomData && (!roomData.users || Object.keys(roomData.users).length === 0)) {
+      console.log('[room] onValue disparado, users:', roomData ? Object.keys(roomData.users || {}) : null);
+
+      if (!roomData) {
+        // Sala não existe — criar do zero
+        console.log('[room] sala não existe, criando...');
+        set(userRef, user)
+          .then(() => set(ref(db, `rooms/${roomId}/creator`), user.id))
+          .then(() => set(ref(db, `rooms/${roomId}/cardSet`), 'fibonacci'))
+          .then(() => set(ref(db, `rooms/${roomId}/createdAt`), serverTimestamp()))
+          .then(() => {
+            console.log('[room] sala criada com sucesso');
+            onDisconnect(userRef).remove();
+          })
+          .catch(err => console.error('[room] ERRO ao criar sala:', err));
+        return;
+      }
+
+      // Sala existe mas sem users — cleanup (sala abandonada)
+      const usersObj = roomData.users && typeof roomData.users === 'object' && !Array.isArray(roomData.users)
+        ? roomData.users : null;
+      if (!usersObj || Object.keys(usersObj).length === 0) {
+        console.log('[room] sala sem users, removendo...');
         remove(roomRef);
         setRoom(null);
         return;
       }
-      setRoom(roomData ? { id: roomId, ...roomData } : null);
-      handleUserConnection(roomData);
+
+      // Sala existe com users
+      setRoom({ id: roomId, ...roomData });
+
+      if (!roomData.users[user.id]) {
+        console.log('[room] usuário não está na sala, adicionando...');
+        set(userRef, user)
+          .then(() => onDisconnect(userRef).remove())
+          .catch(err => console.error('[room] ERRO ao adicionar usuário:', err));
+      } else {
+        onDisconnect(userRef).remove();
+      }
     });
 
     return () => {
       unsubscribe();
-      if (user) {
-        const userRef = ref(db, `rooms/${roomId}/users/${user.id}`);
-        onDisconnect(userRef).cancel();
-      }
+      onDisconnect(userRef).cancel();
     };
   }, [user]);
 
   const handleNameSubmit = (name) => {
-    const newUser = {
-      name,
-      id: user?.id || Date.now().toString(),
-    };
-    setUser(newUser);
-    localStorage.setItem('scrumpoker-user', JSON.stringify(newUser));
-    window.location.reload();
+    authReady.then((firebaseUser) => {
+      const newUser = {
+        name,
+        id: firebaseUser.uid,
+      };
+      setUser(newUser);
+      localStorage.setItem('scrumpoker-user', JSON.stringify(newUser));
+      window.location.reload();
+    });
   };
+
+  useEffect(() => {
+    if (!user || !room) return;
+    const lastToken = room.resetToken;
+    if (!lastToken) return;
+    const voteRef = ref(db, `rooms/${room.id}/users/${user.id}/vote`);
+    set(voteRef, null);
+  }, [room?.resetToken, room, user]);
 
   const handleVote = (vote) => {
     if (room && user) {
@@ -214,17 +250,9 @@ function App() {
   };
 
   const handleResetVotes = () => {
-    if (room?.users) {
-        const roomRef = ref(db, `rooms/${room.id}`);
-        runTransaction(roomRef, (currentRoom) => {
-            if (currentRoom) {
-                Object.keys(currentRoom.users).forEach(userId => {
-                    currentRoom.users[userId].vote = null;
-                });
-                currentRoom.showVotes = false;
-            }
-            return currentRoom;
-        });
+    if (room && isRoomCreator) {
+      set(ref(db, `rooms/${room.id}/resetToken`), Date.now());
+      set(ref(db, `rooms/${room.id}/showVotes`), false);
     }
   };
 
@@ -250,6 +278,10 @@ function App() {
       set(ref(db, `rooms/${room.id}/cardSet`), newCardSet);
     }
   };
+
+  if (authLoading) {
+    return <div className="App"><h1>Loading...</h1></div>;
+  }
 
   if (!user) {
     return <NamePopup onSubmit={handleNameSubmit} />;
