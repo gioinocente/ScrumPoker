@@ -230,12 +230,13 @@ function App() {
   };
 
   useEffect(() => {
-    if (!user || !room) return;
-    const lastToken = room.resetToken;
-    if (!lastToken) return;
-    const voteRef = ref(db, `rooms/${room.id}/users/${user.id}/vote`);
-    set(voteRef, null);
-  }, [room?.resetToken, room, user]);
+    if (!user || !room?.resetToken) return;
+    const storageKey = `scrumpoker-lastReset-${room.id}`;
+    const lastSeen = localStorage.getItem(storageKey);
+    if (lastSeen === String(room.resetToken)) return;
+    localStorage.setItem(storageKey, String(room.resetToken));
+    set(ref(db, `rooms/${room.id}/users/${user.id}/vote`), null);
+  }, [room?.resetToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleVote = (vote) => {
     if (room && user) {
@@ -250,7 +251,7 @@ function App() {
   };
 
   const handleResetVotes = () => {
-    if (room && isRoomCreator) {
+    if (room) {
       set(ref(db, `rooms/${room.id}/resetToken`), Date.now());
       set(ref(db, `rooms/${room.id}/showVotes`), false);
     }
